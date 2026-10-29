@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Transcriber</title>
+  <title>Dictation</title>
   <style>
     :root {
       color-scheme: light;
@@ -16,6 +16,7 @@
       --accent-ink: #f7f4ee;
       --danger: #8d2e2e;
       --danger-bg: #f8e8e4;
+      --warn: #efe6d6;
     }
 
     * { box-sizing: border-box; }
@@ -79,12 +80,14 @@
       font-size: 0.9rem;
     }
 
-    .actions, .result-actions {
+    .actions, .toolbar {
       display: flex;
       flex-wrap: wrap;
       gap: 0.5rem;
       margin-top: 1rem;
     }
+
+    .toolbar { margin: 0 0 1rem; }
 
     button {
       appearance: none;
@@ -111,6 +114,11 @@
       color: var(--ink);
     }
 
+    .secondary.on {
+      border-color: var(--accent);
+      background: #f3f7f4;
+    }
+
     .error {
       margin: 1rem 0 0;
       padding: 0.75rem 0.9rem;
@@ -119,11 +127,20 @@
       color: var(--danger);
     }
 
-    .result { margin-top: 1rem; }
+    .progress {
+      margin: 0 0 0.35rem;
+      font-weight: 650;
+    }
+
+    .stamp {
+      margin: 0 0 1rem;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
 
     textarea {
       width: 100%;
-      min-height: 16rem;
+      min-height: 7.5rem;
       resize: vertical;
       border: 1px solid var(--line);
       border-radius: 8px;
@@ -133,10 +150,49 @@
       background: #fff;
     }
 
-    .meta {
-      margin: 0.5rem 0 0;
+    .review {
+      margin-top: 1rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--line);
+    }
+
+    .grade {
+      margin: 0 0 0.75rem;
+      font-weight: 650;
+    }
+
+    .grade.exact { color: var(--accent); }
+    .grade.almost { color: #6a5420; }
+    .grade.missed { color: var(--danger); }
+
+    .label {
+      margin: 0 0 0.3rem;
       color: var(--muted);
-      font-size: 0.9rem;
+      font-size: 0.85rem;
+    }
+
+    .words {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.2rem 0.35rem;
+      margin: 0 0 0.85rem;
+    }
+
+    .words span {
+      padding: 0.05rem 0.2rem;
+      border-radius: 4px;
+    }
+
+    .words .missed { background: var(--danger-bg); }
+    .words .extra {
+      background: var(--warn);
+      color: var(--muted);
+      text-decoration: line-through;
+    }
+
+    .summary-line {
+      margin: 0 0 0.4rem;
+      font-size: 1.05rem;
     }
 
     [hidden] { display: none !important; }
@@ -144,32 +200,60 @@
 </head>
 <body>
   <main>
-    <h1>Transcriber</h1>
-    <p class="lede">Upload an audio file and get the text.</p>
+    <h1>Dictation</h1>
+    <p class="lede">Hear a sentence, type it, see what you missed.</p>
     <p id="status" class="status" role="status">Checking the transcription model…</p>
 
-    <section class="card">
+    <section id="prepare" class="card">
       <div id="drop" class="drop">
         <button id="choose" class="secondary" type="button">Choose file</button>
         <input id="file" type="file" accept=".mp3,.wav,.m4a,.webm,.ogg,.flac,audio/*" hidden>
         <p id="file-meta" class="file-meta" hidden></p>
-        <p class="hint">mp3, wav, m4a, webm, ogg, or flac. Up to 25 MB.</p>
+        <p class="hint">mp3, wav, m4a, webm, ogg, or flac. Up to 25 MB. The answer is hidden until you check.</p>
       </div>
-
       <div class="actions">
-        <button id="transcribe" class="primary" type="button" disabled>Transcribe</button>
+        <button id="prepare-btn" class="primary" type="button" disabled>Prepare</button>
+        <button id="start-btn" class="primary" type="button" hidden>Start dictation</button>
       </div>
-
       <p id="error" class="error" hidden></p>
+    </section>
 
-      <div id="result" class="result" hidden>
-        <textarea id="transcript" readonly></textarea>
-        <p id="meta" class="meta"></p>
-        <div class="result-actions">
-          <button id="copy" class="secondary" type="button">Copy</button>
-          <button id="download" class="secondary" type="button">Download .txt</button>
-          <button id="clear" class="secondary" type="button">Clear</button>
+    <section id="practice" class="card" hidden>
+      <p id="progress" class="progress"></p>
+      <p id="stamp" class="stamp"></p>
+      <audio id="player"></audio>
+      <div class="toolbar">
+        <button id="play" class="primary" type="button">Play</button>
+        <button id="replay" class="secondary" type="button">Replay</button>
+        <button id="speed-75" class="secondary" type="button" data-speed="0.75">0.75x</button>
+        <button id="speed-100" class="secondary on" type="button" data-speed="1">1x</button>
+        <button id="speed-125" class="secondary" type="button" data-speed="1.25">1.25x</button>
+      </div>
+      <label class="label" for="answer">Type what you heard</label>
+      <textarea id="answer" spellcheck="false"></textarea>
+      <div class="actions">
+        <button id="check" class="primary" type="button">Check</button>
+        <button id="reveal" class="secondary" type="button">Reveal</button>
+        <button id="skip" class="secondary" type="button">Skip</button>
+      </div>
+      <div id="review" class="review" hidden>
+        <p id="grade" class="grade"></p>
+        <p class="label">Answer</p>
+        <div id="expected-words" class="words"></div>
+        <p class="label">You</p>
+        <div id="typed-words" class="words"></div>
+        <div class="actions">
+          <button id="next" class="primary" type="button">Next</button>
         </div>
+      </div>
+    </section>
+
+    <section id="summary" class="card" hidden>
+      <p id="summary-score" class="summary-line"></p>
+      <p id="summary-detail" class="hint"></p>
+      <div class="actions">
+        <button id="retry" class="primary" type="button">Retry missed</button>
+        <button id="new-file" class="secondary" type="button">New file</button>
       </div>
     </section>
   </main>
@@ -179,29 +263,54 @@
     const MAX_BYTES = 25 * 1024 * 1024;
 
     const statusEl = document.getElementById("status");
+    const prepareEl = document.getElementById("prepare");
+    const practiceEl = document.getElementById("practice");
+    const summaryEl = document.getElementById("summary");
     const dropEl = document.getElementById("drop");
     const chooseEl = document.getElementById("choose");
     const fileEl = document.getElementById("file");
     const fileMetaEl = document.getElementById("file-meta");
-    const transcribeEl = document.getElementById("transcribe");
+    const prepareBtn = document.getElementById("prepare-btn");
+    const startBtn = document.getElementById("start-btn");
     const errorEl = document.getElementById("error");
-    const resultEl = document.getElementById("result");
-    const transcriptEl = document.getElementById("transcript");
-    const metaEl = document.getElementById("meta");
-    const copyEl = document.getElementById("copy");
-    const downloadEl = document.getElementById("download");
-    const clearEl = document.getElementById("clear");
+    const progressEl = document.getElementById("progress");
+    const stampEl = document.getElementById("stamp");
+    const player = document.getElementById("player");
+    const playEl = document.getElementById("play");
+    const replayEl = document.getElementById("replay");
+    const answerEl = document.getElementById("answer");
+    const checkEl = document.getElementById("check");
+    const revealEl = document.getElementById("reveal");
+    const skipEl = document.getElementById("skip");
+    const reviewEl = document.getElementById("review");
+    const gradeEl = document.getElementById("grade");
+    const expectedWordsEl = document.getElementById("expected-words");
+    const typedWordsEl = document.getElementById("typed-words");
+    const nextEl = document.getElementById("next");
+    const summaryScoreEl = document.getElementById("summary-score");
+    const summaryDetailEl = document.getElementById("summary-detail");
+    const retryEl = document.getElementById("retry");
+    const newFileEl = document.getElementById("new-file");
+    const speedButtons = [document.getElementById("speed-75"), document.getElementById("speed-100"), document.getElementById("speed-125")];
 
     let selected = null;
     let health = null;
     let busy = false;
+    let chunks = [];
+    let session = [];
+    let results = [];
+    let index = 0;
+    let scored = false;
+    let speed = 1;
+    let audioUrl = "";
+    let stopAt = 0;
+    let preparedMeta = "";
 
     chooseEl.addEventListener("click", () => fileEl.click());
     fileEl.addEventListener("change", () => {
       const file = fileEl.files && fileEl.files[0];
       if (file) selectFile(file);
     });
-
     dropEl.addEventListener("dragover", (event) => {
       event.preventDefault();
       dropEl.classList.add("hot");
@@ -214,20 +323,39 @@
       if (file) selectFile(file);
     });
 
-    transcribeEl.addEventListener("click", transcribe);
-    copyEl.addEventListener("click", copyText);
-    downloadEl.addEventListener("click", downloadText);
-    clearEl.addEventListener("click", clearAll);
+    prepareBtn.addEventListener("click", prepareClip);
+    startBtn.addEventListener("click", () => startSession(chunks));
+    playEl.addEventListener("click", playCurrent);
+    replayEl.addEventListener("click", playCurrent);
+    checkEl.addEventListener("click", checkAnswer);
+    revealEl.addEventListener("click", revealAnswer);
+    skipEl.addEventListener("click", skipChunk);
+    nextEl.addEventListener("click", nextChunk);
+    retryEl.addEventListener("click", retryMissed);
+    newFileEl.addEventListener("click", resetAll);
+    speedButtons.forEach((button) => {
+      button.addEventListener("click", () => setSpeed(Number(button.dataset.speed)));
+    });
+    answerEl.addEventListener("keydown", (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+        event.preventDefault();
+        if (!scored) checkAnswer();
+        else nextChunk();
+      }
+    });
+    player.addEventListener("timeupdate", () => {
+      if (stopAt && player.currentTime >= stopAt) player.pause();
+    });
 
     function selectFile(file) {
       selected = file;
+      chunks = [];
+      startBtn.hidden = true;
       hideError();
       const problem = validate(file);
       fileMetaEl.hidden = false;
-      fileMetaEl.textContent = problem
-        ? file.name
-        : file.name + " — " + formatSize(file.size);
-      transcribeEl.disabled = Boolean(problem) || !canTranscribe();
+      fileMetaEl.textContent = problem ? file.name : file.name + " — " + formatSize(file.size);
+      prepareBtn.disabled = Boolean(problem) || !canPrepare();
       if (problem) showError(problem);
     }
 
@@ -243,17 +371,17 @@
       return "";
     }
 
-    function canTranscribe() {
+    function canPrepare() {
       return Boolean(health && health.ready) && !busy && selected && !validate(selected);
     }
 
-    async function transcribe() {
-      if (!canTranscribe()) return;
+    async function prepareClip() {
+      if (!canPrepare()) return;
       busy = true;
       hideError();
-      resultEl.hidden = true;
-      transcribeEl.disabled = true;
-      statusEl.textContent = "Transcribing…";
+      startBtn.hidden = true;
+      prepareBtn.disabled = true;
+      statusEl.textContent = "Preparing sentences…";
 
       const body = new FormData();
       body.append("file", selected, selected.name);
@@ -266,71 +394,279 @@
           return;
         }
         const payload = await response.json();
-        transcriptEl.value = payload.text || "";
-        metaEl.textContent = resultMeta(payload);
-        resultEl.hidden = false;
-        if (!payload.text) showError("No speech was detected in this file.");
+        chunks = payload.chunks || [];
+        if (!chunks.length) {
+          showError("No speech was detected in this file.");
+          statusEl.textContent = deviceLabel();
+          return;
+        }
+        preparedMeta = chunks.length + " sentences · " + formatDuration(payload.duration_seconds);
+        fileMetaEl.textContent = selected.name + " — " + preparedMeta;
+        startBtn.hidden = false;
         statusEl.textContent = deviceLabel();
       } catch {
-        showError("Transcription failed. The server is not responding.");
+        showError("Preparation failed. The server is not responding.");
         statusEl.textContent = "The server is not responding.";
       } finally {
         busy = false;
-        transcribeEl.disabled = !canTranscribe();
+        prepareBtn.disabled = !canPrepare();
       }
     }
 
-    function resultMeta(payload) {
-      const language = languageName(payload.language);
-      const duration = formatDuration(payload.duration_seconds);
-      const where = payload.device === "cuda" ? "GPU" : "CPU";
-      return "Detected language: " + language + " · " + duration + " · " + where;
+    function startSession(items) {
+      session = items.map((chunk) => ({ ...chunk }));
+      results = session.map(() => null);
+      index = 0;
+      scored = false;
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
+      audioUrl = URL.createObjectURL(selected);
+      player.src = audioUrl;
+      showScreen("practice");
+      loadChunk();
     }
 
-    function languageName(code) {
-      if (!code) return "Unknown";
-      try {
-        return new Intl.DisplayNames(undefined, { type: "language" }).of(code) || code;
-      } catch {
-        return code;
+    function loadChunk() {
+      scored = false;
+      answerEl.value = "";
+      answerEl.readOnly = false;
+      reviewEl.hidden = true;
+      expectedWordsEl.replaceChildren();
+      typedWordsEl.replaceChildren();
+      checkEl.disabled = false;
+      revealEl.disabled = false;
+      skipEl.disabled = false;
+      progressEl.textContent = "Sentence " + (index + 1) + " of " + session.length;
+      stampEl.textContent = formatStamp(session[index].start) + "–" + formatStamp(session[index].end);
+      statusEl.textContent = "Listen, then type. Replay as needed.";
+      playCurrent();
+      answerEl.focus();
+    }
+
+    function playCurrent() {
+      const chunk = session[index];
+      if (!chunk) return;
+      const start = Math.max(0, chunk.start - 0.05);
+      stopAt = chunk.end + 0.12;
+      player.playbackRate = speed;
+      const startPlay = () => {
+        player.play().catch(() => {});
+      };
+      if (Math.abs(player.currentTime - start) < 0.04) {
+        startPlay();
+        return;
+      }
+      const onSeeked = () => {
+        player.removeEventListener("seeked", onSeeked);
+        startPlay();
+      };
+      player.addEventListener("seeked", onSeeked);
+      player.currentTime = start;
+    }
+
+    function setSpeed(value) {
+      speed = value;
+      player.playbackRate = speed;
+      speedButtons.forEach((button) => {
+        button.classList.toggle("on", Number(button.dataset.speed) === speed);
+      });
+    }
+
+    function checkAnswer() {
+      if (scored) return;
+      const expected = session[index].text;
+      const typed = answerEl.value;
+      const diff = diffWords(expected, typed);
+      const grade = gradeDiff(diff);
+      finishChunk(grade, typed, diff, false);
+    }
+
+    function revealAnswer() {
+      if (scored) return;
+      const expected = session[index].text;
+      const typed = answerEl.value.trim();
+      const diff = diffWords(expected, typed);
+      finishChunk("missed", typed, diff, true);
+    }
+
+    function skipChunk() {
+      if (scored) return;
+      player.pause();
+      results[index] = { grade: "skipped", typed: "" };
+      if (index + 1 >= session.length) showSummary();
+      else {
+        index += 1;
+        loadChunk();
       }
     }
 
-    async function copyText() {
-      try {
-        await navigator.clipboard.writeText(transcriptEl.value);
-        copyEl.textContent = "Copied";
-        setTimeout(() => { copyEl.textContent = "Copy"; }, 1500);
-      } catch {
-        showError("Could not copy the transcript.");
+    function finishChunk(grade, typed, diff, revealed) {
+      scored = true;
+      player.pause();
+      results[index] = { grade: grade, typed: typed };
+      answerEl.readOnly = true;
+      checkEl.disabled = true;
+      revealEl.disabled = true;
+      skipEl.disabled = true;
+      reviewEl.hidden = false;
+      gradeEl.className = "grade " + grade;
+      gradeEl.textContent = revealed ? "Revealed" : gradeLabel(grade);
+      renderWords(expectedWordsEl, diff.expected);
+      renderWords(typedWordsEl, diff.actual);
+      nextEl.textContent = index + 1 >= session.length ? "Finish" : "Next";
+      nextEl.focus();
+    }
+
+    function nextChunk() {
+      if (index + 1 >= session.length) {
+        showSummary();
+        return;
       }
+      index += 1;
+      loadChunk();
     }
 
-    function downloadText() {
-      const blob = new Blob([transcriptEl.value], { type: "text/plain;charset=utf-8" });
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(blob);
-      link.download = downloadName(selected ? selected.name : "transcript");
-      link.click();
-      URL.revokeObjectURL(link.href);
+    function showSummary() {
+      player.pause();
+      const counts = { exact: 0, almost: 0, missed: 0, skipped: 0 };
+      results.forEach((item) => {
+        if (item && counts[item.grade] !== undefined) counts[item.grade] += 1;
+      });
+      summaryScoreEl.textContent = session.length + " sentences";
+      summaryDetailEl.textContent =
+        counts.exact + " exact · " +
+        counts.almost + " almost · " +
+        counts.missed + " missed · " +
+        counts.skipped + " skipped";
+      const retryCount = retryChunks().length;
+      retryEl.disabled = retryCount === 0;
+      retryEl.textContent = retryCount ? "Retry missed (" + retryCount + ")" : "Retry missed";
+      statusEl.textContent = deviceLabel();
+      showScreen("summary");
     }
 
-    function downloadName(original) {
-      const stem = original.replace(/\.[^.]+$/, "").replace(/[^\w.-]+/g, "_") || "transcript";
-      return stem + ".txt";
+    function retryChunks() {
+      return session.filter((_, itemIndex) => {
+        const grade = results[itemIndex] && results[itemIndex].grade;
+        return grade === "missed" || grade === "almost";
+      });
     }
 
-    function clearAll() {
+    function retryMissed() {
+      const missed = retryChunks();
+      if (!missed.length) return;
+      startSession(missed);
+    }
+
+    function resetAll() {
+      player.pause();
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
+      audioUrl = "";
       selected = null;
+      chunks = [];
+      session = [];
+      results = [];
+      index = 0;
+      scored = false;
+      preparedMeta = "";
       fileEl.value = "";
       fileMetaEl.hidden = true;
       fileMetaEl.textContent = "";
-      transcriptEl.value = "";
-      metaEl.textContent = "";
-      resultEl.hidden = true;
+      startBtn.hidden = true;
       hideError();
-      transcribeEl.disabled = true;
+      prepareBtn.disabled = true;
       statusEl.textContent = deviceLabel();
+      showScreen("prepare");
+    }
+
+    function showScreen(name) {
+      prepareEl.hidden = name !== "prepare";
+      practiceEl.hidden = name !== "practice";
+      summaryEl.hidden = name !== "summary";
+    }
+
+    function tokenize(text) {
+      const matches = String(text || "").match(/[A-Za-z0-9]+(?:['’][A-Za-z0-9]+)*/g) || [];
+      return matches.map((raw) => ({ raw: raw, key: raw.toLowerCase().replace(/’/g, "'") }));
+    }
+
+    function diffWords(expectedText, actualText) {
+      const expected = tokenize(expectedText);
+      const actual = tokenize(actualText);
+      const n = expected.length;
+      const m = actual.length;
+      const dp = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0));
+      for (let i = 1; i <= n; i += 1) {
+        for (let j = 1; j <= m; j += 1) {
+          dp[i][j] = expected[i - 1].key === actual[j - 1].key
+            ? dp[i - 1][j - 1] + 1
+            : Math.max(dp[i - 1][j], dp[i][j - 1]);
+        }
+      }
+      const expectedMarks = [];
+      const actualMarks = [];
+      let i = n;
+      let j = m;
+      while (i > 0 && j > 0) {
+        if (expected[i - 1].key === actual[j - 1].key) {
+          expectedMarks.push({ text: expected[i - 1].raw, type: "ok" });
+          actualMarks.push({ text: actual[j - 1].raw, type: "ok" });
+          i -= 1;
+          j -= 1;
+        } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+          expectedMarks.push({ text: expected[i - 1].raw, type: "missed" });
+          i -= 1;
+        } else {
+          actualMarks.push({ text: actual[j - 1].raw, type: "extra" });
+          j -= 1;
+        }
+      }
+      while (i > 0) {
+        i -= 1;
+        expectedMarks.push({ text: expected[i].raw, type: "missed" });
+      }
+      while (j > 0) {
+        j -= 1;
+        actualMarks.push({ text: actual[j].raw, type: "extra" });
+      }
+      expectedMarks.reverse();
+      actualMarks.reverse();
+      return {
+        expected: expectedMarks,
+        actual: actualMarks,
+        missed: expectedMarks.filter((item) => item.type === "missed").length,
+        extra: actualMarks.filter((item) => item.type === "extra").length,
+        expectedCount: n,
+      };
+    }
+
+    function gradeDiff(diff) {
+      if (diff.expectedCount === 0) return "missed";
+      if (diff.missed === 0 && diff.extra === 0) return "exact";
+      const errors = diff.missed + diff.extra;
+      if (errors <= 1 || errors / diff.expectedCount <= 0.2) return "almost";
+      return "missed";
+    }
+
+    function gradeLabel(grade) {
+      if (grade === "exact") return "Exact";
+      if (grade === "almost") return "Almost";
+      return "Missed";
+    }
+
+    function renderWords(root, marks) {
+      root.replaceChildren();
+      if (!marks.length) {
+        const empty = document.createElement("span");
+        empty.textContent = "—";
+        root.appendChild(empty);
+        return;
+      }
+      marks.forEach((mark) => {
+        const span = document.createElement("span");
+        span.textContent = mark.text;
+        if (mark.type !== "ok") span.className = mark.type;
+        root.appendChild(span);
+      });
     }
 
     function showError(message) {
@@ -367,6 +703,13 @@
       return minutes + " min " + remain + " sec";
     }
 
+    function formatStamp(seconds) {
+      const total = Math.max(0, Number(seconds) || 0);
+      const minutes = Math.floor(total / 60);
+      const remain = (total - minutes * 60).toFixed(1);
+      return minutes + ":" + remain.padStart(4, "0");
+    }
+
     async function readError(response) {
       try {
         const body = await response.json();
@@ -374,19 +717,19 @@
       } catch {
         /* ignore malformed bodies */
       }
-      return "Transcription failed. Try another file.";
+      return "Preparation failed. Try another file.";
     }
 
     async function refreshHealth() {
       try {
         const response = await fetch("/api/health");
         health = await response.json();
-        statusEl.textContent = busy ? "Transcribing…" : deviceLabel();
-        transcribeEl.disabled = !canTranscribe();
+        if (practiceEl.hidden && summaryEl.hidden && !busy) statusEl.textContent = deviceLabel();
+        prepareBtn.disabled = !canPrepare();
         if (!health.ready && !health.error) setTimeout(refreshHealth, 2000);
       } catch {
         health = null;
-        if (!busy) statusEl.textContent = "The server is not responding.";
+        if (practiceEl.hidden && !busy) statusEl.textContent = "The server is not responding.";
         setTimeout(refreshHealth, 2000);
       }
     }
