@@ -1,0 +1,6 @@
+fastapi>=0.115
+uvicorn>=0.32
+python-multipart>=0.0.12
+faster-whisper>=1.1.0
+nvidia-cublas-cu12>=12.4
+nvidia-cudnn-cu12>=9,<10

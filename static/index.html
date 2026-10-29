@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Transcriber</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f3f0e8;
+      --card: #fffcf7;
+      --ink: #1d1c19;
+      --muted: #5e5a53;
+      --line: #ddd6c8;
+      --accent: #1f4b3a;
+      --accent-ink: #f7f4ee;
+      --danger: #8d2e2e;
+      --danger-bg: #f8e8e4;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--ink);
+      font: 16px/1.5 "Segoe UI", sans-serif;
+    }
+
+    main {
+      width: min(40rem, calc(100% - 2rem));
+      margin: 3rem auto;
+    }
+
+    h1 {
+      margin: 0 0 0.25rem;
+      font-size: 1.75rem;
+      font-weight: 650;
+      letter-spacing: -0.02em;
+    }
+
+    .lede {
+      margin: 0 0 1.25rem;
+      color: var(--muted);
+    }
+
+    .status {
+      min-height: 1.5rem;
+      margin: 0 0 1rem;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 1.25rem;
+    }
+
+    .drop {
+      border: 1px dashed var(--line);
+      border-radius: 10px;
+      padding: 1.25rem;
+      text-align: center;
+    }
+
+    .drop.hot { border-color: var(--accent); background: #f3f7f4; }
+
+    .file-meta {
+      margin: 0.85rem 0 0;
+      font-weight: 600;
+    }
+
+    .hint {
+      margin: 0.35rem 0 0;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .actions, .result-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 1rem;
+    }
+
+    button {
+      appearance: none;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      padding: 0.55rem 0.9rem;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.55;
+    }
+
+    .primary {
+      background: var(--accent);
+      color: var(--accent-ink);
+    }
+
+    .secondary {
+      background: transparent;
+      border-color: var(--line);
+      color: var(--ink);
+    }
+
+    .error {
+      margin: 1rem 0 0;
+      padding: 0.75rem 0.9rem;
+      border-radius: 8px;
+      background: var(--danger-bg);
+      color: var(--danger);
+    }
+
+    .result { margin-top: 1rem; }
+
+    textarea {
+      width: 100%;
+      min-height: 16rem;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0.8rem;
+      font: inherit;
+      color: var(--ink);
+      background: #fff;
+    }
+
+    .meta {
+      margin: 0.5rem 0 0;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Transcriber</h1>
+    <p class="lede">Upload an audio file and get the text.</p>
+    <p id="status" class="status" role="status">Checking the transcription model…</p>
+
+    <section class="card">
+      <div id="drop" class="drop">
+        <button id="choose" class="secondary" type="button">Choose file</button>
+        <input id="file" type="file" accept=".mp3,.wav,.m4a,.webm,.ogg,.flac,audio/*" hidden>
+        <p id="file-meta" class="file-meta" hidden></p>
+        <p class="hint">mp3, wav, m4a, webm, ogg, or flac. Up to 25 MB.</p>
+      </div>
+
+      <div class="actions">
+        <button id="transcribe" class="primary" type="button" disabled>Transcribe</button>
+      </div>
+
+      <p id="error" class="error" hidden></p>
+
+      <div id="result" class="result" hidden>
+        <textarea id="transcript" readonly></textarea>
+        <p id="meta" class="meta"></p>
+        <div class="result-actions">
+          <button id="copy" class="secondary" type="button">Copy</button>
+          <button id="download" class="secondary" type="button">Download .txt</button>
+          <button id="clear" class="secondary" type="button">Clear</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const ALLOWED = new Set(["mp3", "wav", "m4a", "webm", "ogg", "flac"]);
+    const MAX_BYTES = 25 * 1024 * 1024;
+
+    const statusEl = document.getElementById("status");
+    const dropEl = document.getElementById("drop");
+    const chooseEl = document.getElementById("choose");
+    const fileEl = document.getElementById("file");
+    const fileMetaEl = document.getElementById("file-meta");
+    const transcribeEl = document.getElementById("transcribe");
+    const errorEl = document.getElementById("error");
+    const resultEl = document.getElementById("result");
+    const transcriptEl = document.getElementById("transcript");
+    const metaEl = document.getElementById("meta");
+    const copyEl = document.getElementById("copy");
+    const downloadEl = document.getElementById("download");
+    const clearEl = document.getElementById("clear");
+
+    let selected = null;
+    let health = null;
+    let busy = false;
+
+    chooseEl.addEventListener("click", () => fileEl.click());
+    fileEl.addEventListener("change", () => {
+      const file = fileEl.files && fileEl.files[0];
+      if (file) selectFile(file);
+    });
+
+    dropEl.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      dropEl.classList.add("hot");
+    });
+    dropEl.addEventListener("dragleave", () => dropEl.classList.remove("hot"));
+    dropEl.addEventListener("drop", (event) => {
+      event.preventDefault();
+      dropEl.classList.remove("hot");
+      const file = event.dataTransfer.files && event.dataTransfer.files[0];
+      if (file) selectFile(file);
+    });
+
+    transcribeEl.addEventListener("click", transcribe);
+    copyEl.addEventListener("click", copyText);
+    downloadEl.addEventListener("click", downloadText);
+    clearEl.addEventListener("click", clearAll);
+
+    function selectFile(file) {
+      selected = file;
+      hideError();
+      const problem = validate(file);
+      fileMetaEl.hidden = false;
+      fileMetaEl.textContent = problem
+        ? file.name
+        : file.name + " — " + formatSize(file.size);
+      transcribeEl.disabled = Boolean(problem) || !canTranscribe();
+      if (problem) showError(problem);
+    }
+
+    function validate(file) {
+      const extension = file.name.includes(".")
+        ? file.name.split(".").pop().toLowerCase()
+        : "";
+      if (!ALLOWED.has(extension)) {
+        return "This file type is not supported. Use mp3, wav, m4a, webm, ogg, or flac.";
+      }
+      if (file.size === 0) return "The file is empty.";
+      if (file.size > MAX_BYTES) return "This file is over 25 MB.";
+      return "";
+    }
+
+    function canTranscribe() {
+      return Boolean(health && health.ready) && !busy && selected && !validate(selected);
+    }
+
+    async function transcribe() {
+      if (!canTranscribe()) return;
+      busy = true;
+      hideError();
+      resultEl.hidden = true;
+      transcribeEl.disabled = true;
+      statusEl.textContent = "Transcribing…";
+
+      const body = new FormData();
+      body.append("file", selected, selected.name);
+
+      try {
+        const response = await fetch("/api/transcribe", { method: "POST", body });
+        if (!response.ok) {
+          showError(await readError(response));
+          statusEl.textContent = deviceLabel();
+          return;
+        }
+        const payload = await response.json();
+        transcriptEl.value = payload.text || "";
+        metaEl.textContent = resultMeta(payload);
+        resultEl.hidden = false;
+        if (!payload.text) showError("No speech was detected in this file.");
+        statusEl.textContent = deviceLabel();
+      } catch {
+        showError("Transcription failed. The server is not responding.");
+        statusEl.textContent = "The server is not responding.";
+      } finally {
+        busy = false;
+        transcribeEl.disabled = !canTranscribe();
+      }
+    }
+
+    function resultMeta(payload) {
+      const language = languageName(payload.language);
+      const duration = formatDuration(payload.duration_seconds);
+      const where = payload.device === "cuda" ? "GPU" : "CPU";
+      return "Detected language: " + language + " · " + duration + " · " + where;
+    }
+
+    function languageName(code) {
+      if (!code) return "Unknown";
+      try {
+        return new Intl.DisplayNames(undefined, { type: "language" }).of(code) || code;
+      } catch {
+        return code;
+      }
+    }
+
+    async function copyText() {
+      try {
+        await navigator.clipboard.writeText(transcriptEl.value);
+        copyEl.textContent = "Copied";
+        setTimeout(() => { copyEl.textContent = "Copy"; }, 1500);
+      } catch {
+        showError("Could not copy the transcript.");
+      }
+    }
+
+    function downloadText() {
+      const blob = new Blob([transcriptEl.value], { type: "text/plain;charset=utf-8" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = downloadName(selected ? selected.name : "transcript");
+      link.click();
+      URL.revokeObjectURL(link.href);
+    }
+
+    function downloadName(original) {
+      const stem = original.replace(/\.[^.]+$/, "").replace(/[^\w.-]+/g, "_") || "transcript";
+      return stem + ".txt";
+    }
+
+    function clearAll() {
+      selected = null;
+      fileEl.value = "";
+      fileMetaEl.hidden = true;
+      fileMetaEl.textContent = "";
+      transcriptEl.value = "";
+      metaEl.textContent = "";
+      resultEl.hidden = true;
+      hideError();
+      transcribeEl.disabled = true;
+      statusEl.textContent = deviceLabel();
+    }
+
+    function showError(message) {
+      errorEl.hidden = false;
+      errorEl.textContent = message;
+    }
+
+    function hideError() {
+      errorEl.hidden = true;
+      errorEl.textContent = "";
+    }
+
+    function deviceLabel() {
+      if (!health) return "Checking the transcription model…";
+      if (health.error) return health.error;
+      if (!health.ready) {
+        return "Loading the transcription model. The first run downloads about 1.6 GB and can take several minutes.";
+      }
+      if (health.device === "cuda") return "Ready on GPU (float16).";
+      return "Ready on CPU (int8). GPU libraries were not available.";
+    }
+
+    function formatSize(bytes) {
+      if (bytes < 1024) return bytes + " B";
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+      return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+    }
+
+    function formatDuration(seconds) {
+      const total = Math.round(Number(seconds) || 0);
+      const minutes = Math.floor(total / 60);
+      const remain = total % 60;
+      if (minutes === 0) return remain + " sec";
+      return minutes + " min " + remain + " sec";
+    }
+
+    async function readError(response) {
+      try {
+        const body = await response.json();
+        if (typeof body.detail === "string") return body.detail;
+      } catch {
+        /* ignore malformed bodies */
+      }
+      return "Transcription failed. Try another file.";
+    }
+
+    async function refreshHealth() {
+      try {
+        const response = await fetch("/api/health");
+        health = await response.json();
+        statusEl.textContent = busy ? "Transcribing…" : deviceLabel();
+        transcribeEl.disabled = !canTranscribe();
+        if (!health.ready && !health.error) setTimeout(refreshHealth, 2000);
+      } catch {
+        health = null;
+        if (!busy) statusEl.textContent = "The server is not responding.";
+        setTimeout(refreshHealth, 2000);
+      }
+    }
+
+    refreshHealth();
+  </script>
+</body>
+</html>

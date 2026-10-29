@@ -1,0 +1,7 @@
+.venv/
+.pip-tmp/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.wav
+*.mp3
