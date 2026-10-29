@@ -21,13 +21,20 @@ The app tries the GPU first (CUDA, float16). If the CUDA libraries do not load, 
 ## Practice
 
 - Prepare splits the clip into sentence-like pieces and hides the text
-- Replay the current sentence, or slow it to 0.75x
+- Jump to sentence N with the number box
+- The play bar shows position in the current sentence
+- Play starts that sentence from the beginning; Stop pauses it. It does not continue into the next sentence. Speed is 0.75x / 1x / 1.25x
 - Check compares your typing to the transcript, ignoring punctuation and capitalization
 - Reveal shows the answer if you are stuck
 - Skip drops noise or overlapping speech
 - Retry missed walks through the sentences you did not get exactly
 
-Ctrl+Enter checks, or goes to the next sentence after a check.
+Shortcuts (practice screen):
+
+- Ctrl+Space play or stop
+- Ctrl+Left / Ctrl+Right jump 3 seconds and play
+- Ctrl+Up / Ctrl+Down change speed
+- Ctrl+Enter check, or go to the next sentence after a check
 
 ## Limits
 

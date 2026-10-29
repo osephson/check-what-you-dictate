@@ -108,6 +108,11 @@
       color: var(--accent-ink);
     }
 
+    .stop {
+      background: #c13a3a;
+      color: #fff;
+    }
+
     .secondary {
       background: transparent;
       border-color: var(--line);
@@ -127,15 +132,54 @@
       color: var(--danger);
     }
 
-    .progress {
+    .progress-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.4rem;
       margin: 0 0 0.35rem;
       font-weight: 650;
     }
 
+    .progress-row input {
+      width: 4.2rem;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0.25rem 0.4rem;
+      font: inherit;
+      font-weight: 650;
+      text-align: center;
+    }
+
     .stamp {
-      margin: 0 0 1rem;
+      margin: 0 0 0.75rem;
       color: var(--muted);
       font-size: 0.9rem;
+    }
+
+    .seek {
+      display: grid;
+      grid-template-columns: 4.2rem 1fr 4.2rem;
+      gap: 0.6rem;
+      align-items: center;
+      margin: 0 0 1rem;
+    }
+
+    .seek input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+    }
+
+    .seek span {
+      color: var(--muted);
+      font-size: 0.85rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .shortcuts {
+      margin: 0.15rem 0 1rem;
+      color: var(--muted);
+      font-size: 0.8rem;
     }
 
     textarea {
@@ -219,16 +263,26 @@
     </section>
 
     <section id="practice" class="card" hidden>
-      <p id="progress" class="progress"></p>
+      <div class="progress-row">
+        <label for="jump">Sentence</label>
+        <input id="jump" type="number" min="1" step="1" inputmode="numeric">
+        <span id="jump-total"></span>
+        <button id="jump-go" class="secondary" type="button">Go</button>
+      </div>
       <p id="stamp" class="stamp"></p>
       <audio id="player"></audio>
+      <div class="seek">
+        <span id="seek-now">0:00.0</span>
+        <input id="seek" type="range" min="0" max="0" value="0" step="0.05" aria-label="Playback position">
+        <span id="seek-end">0:00.0</span>
+      </div>
       <div class="toolbar">
         <button id="play" class="primary" type="button">Play</button>
-        <button id="replay" class="secondary" type="button">Replay</button>
         <button id="speed-75" class="secondary" type="button" data-speed="0.75">0.75x</button>
         <button id="speed-100" class="secondary on" type="button" data-speed="1">1x</button>
         <button id="speed-125" class="secondary" type="button" data-speed="1.25">1.25x</button>
       </div>
+      <p class="shortcuts">Ctrl+Space play/stop · Ctrl+Left / Right skip 3s · Ctrl+Up / Down speed · Ctrl+Enter check or next</p>
       <label class="label" for="answer">Type what you heard</label>
       <textarea id="answer" spellcheck="false"></textarea>
       <div class="actions">
@@ -261,6 +315,8 @@
   <script>
     const ALLOWED = new Set(["mp3", "wav", "m4a", "webm", "ogg", "flac"]);
     const MAX_BYTES = 25 * 1024 * 1024;
+    const SPEEDS = [0.75, 1, 1.25];
+    const SKIP_SECONDS = 3;
 
     const statusEl = document.getElementById("status");
     const prepareEl = document.getElementById("prepare");
@@ -273,11 +329,15 @@
     const prepareBtn = document.getElementById("prepare-btn");
     const startBtn = document.getElementById("start-btn");
     const errorEl = document.getElementById("error");
-    const progressEl = document.getElementById("progress");
+    const jumpEl = document.getElementById("jump");
+    const jumpTotalEl = document.getElementById("jump-total");
+    const jumpGoEl = document.getElementById("jump-go");
     const stampEl = document.getElementById("stamp");
     const player = document.getElementById("player");
+    const seekEl = document.getElementById("seek");
+    const seekNowEl = document.getElementById("seek-now");
+    const seekEndEl = document.getElementById("seek-end");
     const playEl = document.getElementById("play");
-    const replayEl = document.getElementById("replay");
     const answerEl = document.getElementById("answer");
     const checkEl = document.getElementById("check");
     const revealEl = document.getElementById("reveal");
@@ -305,6 +365,7 @@
     let audioUrl = "";
     let stopAt = 0;
     let preparedMeta = "";
+    let draggingSeek = false;
 
     chooseEl.addEventListener("click", () => fileEl.click());
     fileEl.addEventListener("change", () => {
@@ -325,8 +386,32 @@
 
     prepareBtn.addEventListener("click", prepareClip);
     startBtn.addEventListener("click", () => startSession(chunks));
-    playEl.addEventListener("click", playCurrent);
-    replayEl.addEventListener("click", playCurrent);
+    playEl.addEventListener("click", onPlayButton);
+    player.addEventListener("play", syncPlayButton);
+    player.addEventListener("pause", syncPlayButton);
+    player.addEventListener("ended", syncPlayButton);
+    jumpGoEl.addEventListener("click", jumpToSentence);
+    jumpEl.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.ctrlKey && !event.metaKey) {
+        event.preventDefault();
+        jumpToSentence();
+      }
+    });
+    seekEl.addEventListener("pointerdown", () => { draggingSeek = true; });
+    seekEl.addEventListener("input", () => {
+      draggingSeek = true;
+      const bounds = sentenceBounds();
+      const value = clampToSentence(Number(seekEl.value));
+      player.currentTime = value;
+      seekNowEl.textContent = formatStamp(value);
+      seekEl.value = String(value);
+      stopAt = bounds.end;
+    });
+    seekEl.addEventListener("change", () => {
+      draggingSeek = false;
+      stopAt = sentenceBounds().end;
+    });
+    seekEl.addEventListener("pointerup", () => { draggingSeek = false; });
     checkEl.addEventListener("click", checkAnswer);
     revealEl.addEventListener("click", revealAnswer);
     skipEl.addEventListener("click", skipChunk);
@@ -336,16 +421,10 @@
     speedButtons.forEach((button) => {
       button.addEventListener("click", () => setSpeed(Number(button.dataset.speed)));
     });
-    answerEl.addEventListener("keydown", (event) => {
-      if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-        event.preventDefault();
-        if (!scored) checkAnswer();
-        else nextChunk();
-      }
-    });
-    player.addEventListener("timeupdate", () => {
-      if (stopAt && player.currentTime >= stopAt) player.pause();
-    });
+    document.addEventListener("keydown", onShortcut);
+    player.addEventListener("loadedmetadata", syncSeekBar);
+    player.addEventListener("durationchange", syncSeekBar);
+    player.addEventListener("timeupdate", onTimeUpdate);
 
     function selectFile(file) {
       selected = file;
@@ -400,7 +479,7 @@
           statusEl.textContent = deviceLabel();
           return;
         }
-        preparedMeta = chunks.length + " sentences · " + formatDuration(payload.duration_seconds);
+        preparedMeta = chunks.length + (chunks.length === 1 ? " sentence · " : " sentences · ") + formatDuration(payload.duration_seconds);
         fileMetaEl.textContent = selected.name + " — " + preparedMeta;
         startBtn.hidden = false;
         statusEl.textContent = deviceLabel();
@@ -435,23 +514,37 @@
       checkEl.disabled = false;
       revealEl.disabled = false;
       skipEl.disabled = false;
-      progressEl.textContent = "Sentence " + (index + 1) + " of " + session.length;
+      jumpEl.max = String(session.length);
+      jumpEl.value = String(index + 1);
+      jumpTotalEl.textContent = "of " + session.length;
       stampEl.textContent = formatStamp(session[index].start) + "–" + formatStamp(session[index].end);
-      statusEl.textContent = "Listen, then type. Replay as needed.";
+      statusEl.textContent = "Listen, then type. Play the sentence as needed.";
+      syncSeekBar();
       playCurrent();
       answerEl.focus();
     }
 
+    function onPlayButton() {
+      if (!player.paused) player.pause();
+      else playCurrent();
+    }
+
+    function syncPlayButton() {
+      const playing = !player.paused && !player.ended;
+      playEl.textContent = playing ? "Stop" : "Play";
+      playEl.classList.toggle("stop", playing);
+      playEl.classList.toggle("primary", !playing);
+    }
+
     function playCurrent() {
-      const chunk = session[index];
-      if (!chunk) return;
-      const start = Math.max(0, chunk.start - 0.05);
-      stopAt = chunk.end + 0.12;
+      const bounds = sentenceBounds();
+      if (!session[index]) return;
+      stopAt = bounds.end;
       player.playbackRate = speed;
       const startPlay = () => {
         player.play().catch(() => {});
       };
-      if (Math.abs(player.currentTime - start) < 0.04) {
+      if (Math.abs((player.currentTime || 0) - bounds.start) < 0.04) {
         startPlay();
         return;
       }
@@ -460,7 +553,8 @@
         startPlay();
       };
       player.addEventListener("seeked", onSeeked);
-      player.currentTime = start;
+      player.currentTime = bounds.start;
+      syncSeekBar();
     }
 
     function setSpeed(value) {
@@ -469,6 +563,132 @@
       speedButtons.forEach((button) => {
         button.classList.toggle("on", Number(button.dataset.speed) === speed);
       });
+    }
+
+    function nudgeSpeed(direction) {
+      const current = SPEEDS.indexOf(speed);
+      const next = Math.min(SPEEDS.length - 1, Math.max(0, current + direction));
+      setSpeed(SPEEDS[next]);
+    }
+
+    function togglePlay() {
+      if (practiceEl.hidden) return;
+      if (!player.paused) {
+        player.pause();
+        return;
+      }
+      const bounds = sentenceBounds();
+      if ((player.currentTime || 0) >= bounds.end - 0.05) {
+        playCurrent();
+        return;
+      }
+      stopAt = bounds.end;
+      player.playbackRate = speed;
+      player.play().catch(() => {});
+    }
+
+    function skipSeconds(delta) {
+      if (practiceEl.hidden) return;
+      const bounds = sentenceBounds();
+      stopAt = bounds.end;
+      const next = clampToSentence((player.currentTime || bounds.start) + delta);
+      player.playbackRate = speed;
+      const play = () => { player.play().catch(() => {}); };
+      if (Math.abs((player.currentTime || 0) - next) < 0.02) {
+        play();
+      } else {
+        player.addEventListener("seeked", play, { once: true });
+        player.currentTime = next;
+      }
+      syncSeekBar();
+    }
+
+    function sentenceBounds() {
+      const chunk = session[index];
+      if (!chunk) return { start: 0, end: 0 };
+      const start = Math.max(0, Number(chunk.start) || 0);
+      let end = Math.max(start + 0.05, Number(chunk.end) || start);
+      const following = session[index + 1];
+      if (following && Number(following.start) <= end) {
+        end = Math.max(start + 0.05, Number(following.start) - 0.02);
+      }
+      return { start: start, end: end };
+    }
+
+    function clampToSentence(time) {
+      const bounds = sentenceBounds();
+      return Math.min(bounds.end, Math.max(bounds.start, Number(time) || bounds.start));
+    }
+
+    function onTimeUpdate() {
+      const bounds = sentenceBounds();
+      if (player.currentTime >= bounds.end - 0.01) {
+        player.pause();
+        if (player.currentTime > bounds.end) player.currentTime = bounds.end;
+      }
+      if (!draggingSeek) syncSeekBar();
+    }
+
+    function syncSeekBar() {
+      const bounds = sentenceBounds();
+      const pos = draggingSeek ? clampToSentence(Number(seekEl.value)) : clampToSentence(player.currentTime || bounds.start);
+      seekEl.min = String(bounds.start);
+      seekEl.max = String(bounds.end);
+      if (!draggingSeek) seekEl.value = String(pos);
+      seekNowEl.textContent = formatStamp(pos);
+      seekEndEl.textContent = formatStamp(bounds.end);
+    }
+
+    function jumpToSentence() {
+      if (practiceEl.hidden || !session.length) return;
+      const requested = Number(jumpEl.value);
+      if (!Number.isFinite(requested)) {
+        jumpEl.value = String(index + 1);
+        return;
+      }
+      const target = Math.min(session.length, Math.max(1, Math.round(requested))) - 1;
+      jumpEl.value = String(target + 1);
+      if (target === index) {
+        playCurrent();
+        answerEl.focus();
+        return;
+      }
+      index = target;
+      loadChunk();
+    }
+
+    function onShortcut(event) {
+      if (!(event.ctrlKey || event.metaKey) || practiceEl.hidden) return;
+      if (event.key === "Enter") {
+        event.preventDefault();
+        if (!scored) checkAnswer();
+        else nextChunk();
+        return;
+      }
+      if (event.code === "Space") {
+        event.preventDefault();
+        togglePlay();
+        return;
+      }
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        skipSeconds(-SKIP_SECONDS);
+        return;
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        skipSeconds(SKIP_SECONDS);
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        nudgeSpeed(1);
+        return;
+      }
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        nudgeSpeed(-1);
+      }
     }
 
     function checkAnswer() {
@@ -513,7 +733,6 @@
       renderWords(expectedWordsEl, diff.expected);
       renderWords(typedWordsEl, diff.actual);
       nextEl.textContent = index + 1 >= session.length ? "Finish" : "Next";
-      nextEl.focus();
     }
 
     function nextChunk() {
@@ -531,7 +750,7 @@
       results.forEach((item) => {
         if (item && counts[item.grade] !== undefined) counts[item.grade] += 1;
       });
-      summaryScoreEl.textContent = session.length + " sentences";
+      summaryScoreEl.textContent = session.length + (session.length === 1 ? " sentence" : " sentences");
       summaryDetailEl.textContent =
         counts.exact + " exact · " +
         counts.almost + " almost · " +
