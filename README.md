@@ -32,9 +32,10 @@ The app tries the GPU first (CUDA, float16). If the CUDA libraries do not load, 
 Shortcuts (practice screen):
 
 - Ctrl+Space play or stop
-- Ctrl+Left / Ctrl+Right jump 3 seconds and play
+- `[` / `]` jump 3 seconds and play
 - Ctrl+Up / Ctrl+Down change speed
 - Ctrl+Enter check, or go to the next sentence after a check
+- Alt+Left / Alt+Right do not use the browser back or forward buttons
 
 ## Limits
 

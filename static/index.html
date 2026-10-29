@@ -282,7 +282,7 @@
         <button id="speed-100" class="secondary on" type="button" data-speed="1">1x</button>
         <button id="speed-125" class="secondary" type="button" data-speed="1.25">1.25x</button>
       </div>
-      <p class="shortcuts">Ctrl+Space play/stop · Ctrl+Left / Right skip 3s · Ctrl+Up / Down speed · Ctrl+Enter check or next</p>
+      <p class="shortcuts">Ctrl+Space play/stop · [ / ] skip 3s · Ctrl+Up / Down speed · Ctrl+Enter check or next</p>
       <label class="label" for="answer">Type what you heard</label>
       <textarea id="answer" spellcheck="false"></textarea>
       <div class="actions">
@@ -421,7 +421,7 @@
     speedButtons.forEach((button) => {
       button.addEventListener("click", () => setSpeed(Number(button.dataset.speed)));
     });
-    document.addEventListener("keydown", onShortcut);
+    document.addEventListener("keydown", onShortcut, true);
     player.addEventListener("loadedmetadata", syncSeekBar);
     player.addEventListener("durationchange", syncSeekBar);
     player.addEventListener("timeupdate", onTimeUpdate);
@@ -658,7 +658,22 @@
     }
 
     function onShortcut(event) {
-      if (!(event.ctrlKey || event.metaKey) || practiceEl.hidden) return;
+      if (event.altKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+        event.preventDefault();
+        return;
+      }
+      if (practiceEl.hidden) return;
+      if (event.key === "[" || event.code === "BracketLeft") {
+        event.preventDefault();
+        skipSeconds(-SKIP_SECONDS);
+        return;
+      }
+      if (event.key === "]" || event.code === "BracketRight") {
+        event.preventDefault();
+        skipSeconds(SKIP_SECONDS);
+        return;
+      }
+      if (!(event.ctrlKey || event.metaKey)) return;
       if (event.key === "Enter") {
         event.preventDefault();
         if (!scored) checkAnswer();
@@ -668,16 +683,6 @@
       if (event.code === "Space") {
         event.preventDefault();
         togglePlay();
-        return;
-      }
-      if (event.key === "ArrowLeft") {
-        event.preventDefault();
-        skipSeconds(-SKIP_SECONDS);
-        return;
-      }
-      if (event.key === "ArrowRight") {
-        event.preventDefault();
-        skipSeconds(SKIP_SECONDS);
         return;
       }
       if (event.key === "ArrowUp") {
